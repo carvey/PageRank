@@ -1,7 +1,12 @@
+import pandas as pd
+import numpy as np
+
 from orderedset import OrderedSet
+from collections import OrderedDict
 
 from .node import Node
-from .edge import Edge
+
+pd.set_option('display.width', 100)
 
 class Graph:
 
@@ -40,7 +45,7 @@ class Graph:
     def find_node(self, name):
         """
         Since sets do not support getting an item out, loop over and compare each node
-        for equality
+        for equality in order to find the desired node
 
         :param name: the name of the node to search for
         :return: the node with `name` if it is present in the graphs node_set
@@ -54,19 +59,86 @@ class Graph:
 
         return None
 
-    def create_h_matrix(self):
-        pass
+    def create_h_matrix(self, df=None, store=True):
+        """
+        Adjacency matrix
+        :return:
+        """
+        # set up default matrix (n x n with all 0 values)
+        if not df:
+            df = self.h_matrix
 
-    def create_s_matrix(self):
-        pass
+        df = self.dataframe_nxn()
 
-    def create_g_matrix(self):
-        pass
+        for node in self.node_set:
+            adjacency_map = node.compute_adjacency()
 
-    def compute_page_rank(self):
-        pass
+            for adjacent_node, probability in adjacency_map.items():
+                df.set_value(node, adjacent_node, probability)
+
+        if store:
+            self.h_matrix = df
+
+        return df
+
+
+    def create_s_matrix(self, df=None, store=True):
+        """
+        Transition Stochastic Matrix
+        :return:
+        """
+        if not df:
+            df = self.create_h_matrix(store=False)
+
+        def correct_dangling(row):
+            if row.sum() == 0:
+                return [1/len(row) for node in self.node_set]
+
+            else:
+                return row
+
+        df = df.apply(correct_dangling, axis=1, reduce=False)
+
+
+        if store:
+            self.s_matrix = df
+
+        return df
+
+
+    def create_g_matrix(self, df=None, store=False):
+        """
+        Google Matrix
+        :return:
+        """
+        scaling_param = .9
+        if not df:
+            df = self.create_s_matrix(store=False)
+
+        df = np.dot(.9, df)
+        df += np.dot((1-scaling_param), 1/len(self.node_set))
+
+        return df
+
+    def compute_page_rank(self, df=None):
+        if not df:
+            df = self.create_g_matrix()
+
+        vector = [1/len(self.node_set) for x in self.node_set]
+
+        for node in self.node_set:
+            vector = np.dot(vector, df)
+
+        vector = vector.round(3)
+        page_map = {}
+        for i, node in enumerate(self.node_set):
+            page_map[node] = vector[i]
+
+        return page_map
+
 
     def describe_graph(self):
+        print("Details for graph: %s" % self.name)
         print("++++ Nodes in the graph")
         for node in self.node_set:
             print("NodeName = %s" % node.name)
@@ -75,6 +147,29 @@ class Graph:
         for node in self.node_set:
             node.describe()
 
-    def describe_matrix(self):
-        pass
+        print("\n\nAdjency Matrix:\n")
+        print(self.create_h_matrix().round(3))
 
+        print("\n\nTransition Stochastic Matrix:\n")
+        print(self.create_s_matrix().round(3))
+
+        print("\n\nGoogle Matrix:\n")
+        print(self.create_g_matrix().round(3))
+
+        print("\n\nRankings:\n")
+
+        data = self.compute_page_rank()
+
+        sorted_nodes = sorted(data, key=data.get, reverse=True)
+        for i, node in enumerate(sorted_nodes):
+            print("Rank #%s: %s - %s" % (i+1, node, data[node]))
+
+
+    def dataframe_nxn(self):
+        structure = OrderedDict()
+        blank_data = [0.0 for node in self.node_set]
+
+        for node in self.node_set:
+            structure[node] = pd.Series(blank_data, index=self.node_set)
+
+        return pd.DataFrame(structure)
